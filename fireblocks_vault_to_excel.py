@@ -25,8 +25,10 @@ OUTPUT_DIR = BASE_DIR / "Output"
 # These are the only assets we want to keep after importing the CSV data.
 ALLOWED_ASSETS = ["TRX", "ETH", "USDT_ERC20", "TRX_USDT_S2UZ"]
 
-# These two asset codes should be combined into one USDT worksheet.
+# These asset groups are used to build the currency sheets.
 USDT_ASSETS = {"USDT_ERC20", "TRX_USDT_S2UZ"}
+TRX_SHEET_ASSETS = {"TRX", "TRX_USDT_S2UZ"}
+ETH_SHEET_ASSETS = {"ETH", "USDT_ERC20"}
 
 # These formats control how dates and balance numbers appear in Excel.
 DATE_NUMBER_FORMAT = "yyyy/mm/dd hh:mm"
@@ -34,7 +36,7 @@ ROUNDED_DATE_NUMBER_FORMAT = "yyyy/mm/dd"
 COMMA_STYLE_FORMAT = "#,##0.00"
 TABLE_COLUMN_WIDTH = 16.5
 
-# These fill colours are used on the USDT sheet for date and balance sections.
+# These fill colours are used for the date and balance sections.
 BLUE_HEADER_FILL = PatternFill(fill_type="solid", fgColor="538DD5")
 BLUE_DATA_FILL = PatternFill(fill_type="solid", fgColor="C5D9F1")
 YELLOW_HEADER_FILL = PatternFill(fill_type="solid", fgColor="FFE599")
@@ -58,7 +60,7 @@ def list_csv_files(folder: Path) -> list[Path]:
 # -----------------------------------------------------------------------------
 # DESTINATION FILE DETAILS
 # The Destination CSV gives us the vault name and the two destination wallet
-# addresses we need for the workbook layout and the USDT balance formulas.
+# addresses we need for the workbook layout and the formula-based tabs.
 # -----------------------------------------------------------------------------
 def find_destination_csv(csv_files: list[Path]) -> Path:
     for csv_file in csv_files:
@@ -160,13 +162,11 @@ def parse_fireblocks_date(raw_value: str) -> datetime:
 # These small helper functions keep only the rows we want.
 # -----------------------------------------------------------------------------
 def filter_completed(rows: Iterable[list[str]]) -> list[list[str]]:
-    # Keep only rows where Status (column B) is COMPLETED.
     return [row for row in rows if len(row) > 1 and row[1].strip().upper() == "COMPLETED"]
 
 
 
 def filter_assets(rows: Iterable[list]) -> list[list]:
-    # Keep only the four asset types requested by the user.
     return [row for row in rows if len(row) > 4 and str(row[4]).strip() in ALLOWED_ASSETS]
 
 
@@ -184,11 +184,8 @@ def to_decimal_amount(value) -> float:
 
 def convert_numeric_columns(row: list[str]) -> list:
     converted_row = list(row)
-
-    # Columns H to M should be stored as real numbers in Excel, not as text.
     for index in range(7, 13):
         converted_row[index] = to_decimal_amount(converted_row[index])
-
     return converted_row
 
 
@@ -197,29 +194,22 @@ def convert_numeric_columns(row: list[str]) -> list:
 # These functions make the workbook easier to read once it has been created.
 # -----------------------------------------------------------------------------
 def set_table_column_widths(worksheet, max_column: int) -> None:
-    # Set all table columns to the fixed width requested by the user.
     for column_idx in range(1, max_column + 1):
         worksheet.column_dimensions[get_column_letter(column_idx)].width = TABLE_COLUMN_WIDTH
 
 
 
 def apply_table_formats(worksheet, header_row: int, first_data_row: int, max_column: int) -> None:
-    # Make the header row bold.
     for cell in worksheet[header_row]:
         cell.font = Font(bold=True)
 
-    # Turn on filters only for the actual table range.
     worksheet.auto_filter.ref = f"A{header_row}:{get_column_letter(max_column)}{worksheet.max_row}"
-
-    # Freeze the sheet just below the header row.
     worksheet.freeze_panes = f"A{first_data_row}"
 
-    # Columns H to M contain numeric values and should display in comma style.
     for row_idx in range(first_data_row, worksheet.max_row + 1):
         for column_idx in range(8, 14):
             worksheet.cell(row=row_idx, column=column_idx).number_format = COMMA_STYLE_FORMAT
 
-    # Columns AD and AE contain real Excel date values, so we format them here.
     for row_idx in range(first_data_row, worksheet.max_row + 1):
         worksheet.cell(row=row_idx, column=30).number_format = DATE_NUMBER_FORMAT
         worksheet.cell(row=row_idx, column=31).number_format = ROUNDED_DATE_NUMBER_FORMAT
@@ -228,24 +218,29 @@ def apply_table_formats(worksheet, header_row: int, first_data_row: int, max_col
 
 
 
-def style_top_address_rows(worksheet) -> None:
+def style_top_label_rows(worksheet) -> None:
     worksheet["A1"].font = Font(bold=True)
     worksheet["A2"].font = Font(bold=True)
 
 
 
-def apply_usdt_colour_blocks(worksheet, header_row: int, first_data_row: int) -> None:
-    # Colour the date columns AD and AE.
-    for column_idx in range(30, 32):
-        worksheet.cell(row=header_row, column=column_idx).fill = BLUE_HEADER_FILL
+def apply_colour_block(worksheet, header_row: int, first_data_row: int, start_col: int, end_col: int, header_fill, data_fill) -> None:
+    for column_idx in range(start_col, end_col + 1):
+        worksheet.cell(row=header_row, column=column_idx).fill = header_fill
         for row_idx in range(first_data_row, worksheet.max_row + 1):
-            worksheet.cell(row=row_idx, column=column_idx).fill = BLUE_DATA_FILL
+            worksheet.cell(row=row_idx, column=column_idx).fill = data_fill
 
-    # Colour the balance columns AF to AH.
-    for column_idx in range(32, 35):
-        worksheet.cell(row=header_row, column=column_idx).fill = YELLOW_HEADER_FILL
-        for row_idx in range(first_data_row, worksheet.max_row + 1):
-            worksheet.cell(row=row_idx, column=column_idx).fill = YELLOW_DATA_FILL
+
+
+def apply_usdt_colour_blocks(worksheet, header_row: int, first_data_row: int) -> None:
+    apply_colour_block(worksheet, header_row, first_data_row, 30, 31, BLUE_HEADER_FILL, BLUE_DATA_FILL)
+    apply_colour_block(worksheet, header_row, first_data_row, 32, 34, YELLOW_HEADER_FILL, YELLOW_DATA_FILL)
+
+
+
+def apply_base_asset_colour_blocks(worksheet, header_row: int, first_data_row: int) -> None:
+    apply_colour_block(worksheet, header_row, first_data_row, 30, 31, BLUE_HEADER_FILL, BLUE_DATA_FILL)
+    apply_colour_block(worksheet, header_row, first_data_row, 32, 35, YELLOW_HEADER_FILL, YELLOW_DATA_FILL)
 
 
 # -----------------------------------------------------------------------------
@@ -256,84 +251,76 @@ def apply_usdt_colour_blocks(worksheet, header_row: int, first_data_row: int) ->
 def write_standard_sheet(workbook: Workbook, title: str, header: list[str], rows: list[list]) -> None:
     worksheet = workbook.create_sheet(title=title)
     worksheet.append(header)
-
     for row in rows:
         worksheet.append(row)
-
     apply_table_formats(worksheet, header_row=1, first_data_row=2, max_column=len(header))
 
 
 
-def write_currency_sheet(
-    workbook: Workbook,
-    title: str,
-    header: list[str],
-    rows: list[list],
-    vault_name: str,
-    trx_address: str,
-    eth_address: str,
-) -> None:
+def write_single_wallet_sheet(workbook: Workbook, title: str, header: list[str], rows: list[list], wallet_label: str, wallet_address: str, crypto_asset: str) -> None:
     worksheet = workbook.create_sheet(title=title)
+    worksheet["A1"] = wallet_label
+    worksheet["B1"] = wallet_address
+    worksheet["A2"] = "Crypto Asset"
+    worksheet["B2"] = crypto_asset
+    worksheet.append([])
+    worksheet.append(header)
+    for row in rows:
+        worksheet.append(row)
+    style_top_label_rows(worksheet)
+    apply_table_formats(worksheet, header_row=4, first_data_row=5, max_column=len(header))
 
-    # Rows 1 and 2 show the two reference wallet addresses for the vault.
+
+
+def write_usdt_sheet(workbook: Workbook, title: str, header: list[str], rows: list[list], vault_name: str, trx_address: str, eth_address: str) -> None:
+    worksheet = workbook.create_sheet(title=title)
     worksheet["A1"] = f"{vault_name} TRX Address"
     worksheet["B1"] = trx_address
     worksheet["A2"] = f"{vault_name} ETH Address"
     worksheet["B2"] = eth_address
-
-    # Row 3 is intentionally left blank.
-    # Row 4 contains the table headers.
     worksheet.append([])
     worksheet.append(header)
-
-    # Data starts on row 5.
     for row in rows:
         worksheet.append(row)
-
-    style_top_address_rows(worksheet)
+    style_top_label_rows(worksheet)
     apply_table_formats(worksheet, header_row=4, first_data_row=5, max_column=len(header))
 
 
 # -----------------------------------------------------------------------------
-# USDT BALANCE CALCULATION
-# This creates the USDT worksheet data by combining USDT_ERC20 and
-# TRX_USDT_S2UZ into one sheet, then adding live Excel formulas for:
-# AF = Opening balance
-# AG = Inflow/(Outflow)
-# AH = Closing balance
+# FORMULA-BASED SHEET BUILDERS
 # -----------------------------------------------------------------------------
 def build_usdt_rows(rows: list[list]) -> tuple[list[str], list[list]]:
-    # Add the three extra balance columns after the existing AE column.
     header = rows[0][:31] + ["Opening balance", "Inflow/(Outflow)", "Closing balance"]
-
-    # Keep only the rows that belong in the combined USDT sheet.
     usdt_source_rows = [row[:31] for row in rows[1:] if str(row[4]).strip() in USDT_ASSETS]
-
     output_rows: list[list] = []
 
-    # Data starts on row 5 in the currency sheets, so the first formula row is 5.
     for excel_row_number, row in enumerate(usdt_source_rows, start=5):
-        if excel_row_number == 5:
-            opening_balance = 0
-        else:
-            opening_balance = f"=AH{excel_row_number - 1}"
-
-        # If the destination address in column S matches either wallet address
-        # shown at the top of the sheet, treat it as an inflow. Otherwise it is
-        # an outflow and should be negative.
+        opening_balance = 0 if excel_row_number == 5 else f"=AH{excel_row_number - 1}"
         inflow_outflow = f"=IF(OR(S{excel_row_number}=$B$1,S{excel_row_number}=$B$2),J{excel_row_number},-J{excel_row_number})"
-
-        # Closing balance is opening balance plus movement.
         closing_balance = f"=AF{excel_row_number}+AG{excel_row_number}"
-
         output_rows.append(row + [opening_balance, inflow_outflow, closing_balance])
 
     return header, output_rows
 
 
+
+def build_base_asset_rows(rows: list[list], sheet_assets: set[str]) -> tuple[list[str], list[list]]:
+    header = rows[0][:31] + ["Opening Balance", "Inflow/(Outflow)", "Gas Fees", "Closing Balance"]
+    source_rows = [row[:31] for row in rows[1:] if str(row[4]).strip() in sheet_assets]
+    output_rows: list[list] = []
+
+    for excel_row_number, row in enumerate(source_rows, start=5):
+        opening_balance = 0 if excel_row_number == 5 else f"=AI{excel_row_number - 1}"
+        inflow_outflow = f"=IF(F{excel_row_number}=$B$2,IF(S{excel_row_number}=$B$1,J{excel_row_number},-J{excel_row_number}),0)"
+        gas_fees = f"=IF(P{excel_row_number}=$B$1,-L{excel_row_number},0)"
+        closing_balance = f"=AF{excel_row_number}+AG{excel_row_number}+AH{excel_row_number}"
+        output_rows.append(row + [opening_balance, inflow_outflow, gas_fees, closing_balance])
+
+    return header, output_rows
+
+
 # -----------------------------------------------------------------------------
-# USDT NUMBER FORMATTING
-# This applies number formatting to the three balance columns on the USDT sheet.
+# NUMBER FORMATTING FOR FORMULA COLUMNS
 # -----------------------------------------------------------------------------
 def apply_usdt_number_formats(worksheet, first_data_row: int) -> None:
     for row_idx in range(first_data_row, worksheet.max_row + 1):
@@ -341,25 +328,25 @@ def apply_usdt_number_formats(worksheet, first_data_row: int) -> None:
             worksheet.cell(row=row_idx, column=column_idx).number_format = COMMA_STYLE_FORMAT
 
 
+
+def apply_base_asset_number_formats(worksheet, first_data_row: int) -> None:
+    for row_idx in range(first_data_row, worksheet.max_row + 1):
+        for column_idx in range(32, 36):
+            worksheet.cell(row=row_idx, column=column_idx).number_format = COMMA_STYLE_FORMAT
+
+
 # -----------------------------------------------------------------------------
 # MAIN PROGRAM
-# This is the part that runs the full process from start to finish.
 # -----------------------------------------------------------------------------
 def main() -> None:
-    # Find the two CSV files in the input folder.
     csv_files = list_csv_files(CSV_DIR)
-
-    # Read vault details and the TRX/ETH destination addresses from the file
-    # whose name contains "Destination".
     destination_csv = find_destination_csv(csv_files)
     vault_name, trx_address, eth_address = read_vault_details(destination_csv)
     output_file = build_output_file(vault_name)
 
-    # These variables will hold all imported rows and the shared header row.
     combined_rows: list[list[str]] = []
     trimmed_header: list[str] | None = None
 
-    # Import each CSV and combine the rows into one list.
     for csv_file in csv_files:
         header, rows = read_trimmed_rows(csv_file)
         if trimmed_header is None:
@@ -371,58 +358,43 @@ def main() -> None:
     if trimmed_header is None:
         raise ValueError("No CSV header was loaded.")
 
-    # Keep only rows where Status is COMPLETED.
     completed_rows = filter_completed(combined_rows)
-
-    # Add the two new date columns that will become AD and AE in Excel.
     extended_header = trimmed_header + ["Date", "Date rounded"]
     enriched_rows: list[list] = []
 
     for row in completed_rows:
-        # Turn H:M into real numbers before writing to Excel.
         converted_row = convert_numeric_columns(row)
-
-        # Create the full date/time value from column D.
         parsed_date = parse_fireblocks_date(converted_row[3])
-
-        # Create the rounded date value with time set to midnight.
         rounded_date = parsed_date.replace(hour=0, minute=0, second=0, microsecond=0)
-
-        # Save the original row plus the two new date fields.
         enriched_rows.append(converted_row + [parsed_date, rounded_date])
 
-    # Keep only the four requested assets.
     filtered_rows = filter_assets(enriched_rows)
-
-    # Sort the remaining rows by the new Date column (AD), oldest to newest.
     filtered_rows.sort(key=lambda row: row[29])
 
-    # Start a new Excel workbook and remove the default blank sheet.
     workbook = Workbook()
     default_sheet = workbook.active
     workbook.remove(default_sheet)
 
-    # Create the main consolidated sheet containing all kept transactions.
     write_standard_sheet(workbook, "Consolidated", extended_header, filtered_rows)
 
-    # Split out TRX and ETH into their own separate sheets.
-    trx_rows = [row for row in filtered_rows if str(row[4]).strip() == "TRX"]
-    eth_rows = [row for row in filtered_rows if str(row[4]).strip() == "ETH"]
+    trx_header, trx_rows = build_base_asset_rows([extended_header] + filtered_rows, TRX_SHEET_ASSETS)
+    write_single_wallet_sheet(workbook, "TRX", trx_header, trx_rows, f"{vault_name} TRX Address", trx_address, "TRX")
+    apply_base_asset_number_formats(workbook["TRX"], first_data_row=5)
+    apply_base_asset_colour_blocks(workbook["TRX"], header_row=4, first_data_row=5)
 
-    write_currency_sheet(workbook, "TRX", extended_header, trx_rows, vault_name, trx_address, eth_address)
-    write_currency_sheet(workbook, "ETH", extended_header, eth_rows, vault_name, trx_address, eth_address)
+    eth_header, eth_rows = build_base_asset_rows([extended_header] + filtered_rows, ETH_SHEET_ASSETS)
+    write_single_wallet_sheet(workbook, "ETH", eth_header, eth_rows, f"{vault_name} ETH Address", eth_address, "ETH")
+    apply_base_asset_number_formats(workbook["ETH"], first_data_row=5)
+    apply_base_asset_colour_blocks(workbook["ETH"], header_row=4, first_data_row=5)
 
-    # Build the combined USDT sheet with running balance formulas.
     usdt_header, usdt_rows = build_usdt_rows([extended_header] + filtered_rows)
-    write_currency_sheet(workbook, "USDT", usdt_header, usdt_rows, vault_name, trx_address, eth_address)
+    write_usdt_sheet(workbook, "USDT", usdt_header, usdt_rows, vault_name, trx_address, eth_address)
     apply_usdt_number_formats(workbook["USDT"], first_data_row=5)
     apply_usdt_colour_blocks(workbook["USDT"], header_row=4, first_data_row=5)
 
-    # Make sure the output folder exists, then save the workbook.
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     workbook.save(output_file)
 
-    # Print a short summary in the terminal after the file is created.
     print(f"Vault name: {vault_name}")
     print(f"TRX address: {trx_address}")
     print(f"ETH address: {eth_address}")
@@ -430,9 +402,10 @@ def main() -> None:
     print(f"Imported CSV files: {', '.join(str(path.name) for path in csv_files)}")
     print(f"Completed rows kept: {len(completed_rows)}")
     print(f"Rows kept after asset filter: {len(filtered_rows)}")
+    print(f"TRX rows kept: {len(trx_rows)}")
+    print(f"ETH rows kept: {len(eth_rows)}")
     print(f"USDT rows kept: {len(usdt_rows)}")
 
 
-# This makes sure the script only runs when you execute this file directly.
 if __name__ == "__main__":
     main()
