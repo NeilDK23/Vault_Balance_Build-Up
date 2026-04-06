@@ -1,10 +1,9 @@
+Neil Test/
+Recon Vault Report/
+Vault CSV/
+Output/
+Backups/
 __pycache__/
 *.py[cod]
 *.xlsx
-Output/
-Backups/
-.venv/
-venv/
-.env
-.DS_Store
-Thumbs.db
+*.csv
