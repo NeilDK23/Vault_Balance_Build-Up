@@ -4,6 +4,20 @@ A Python-based workbook generator for reconciling Fireblocks vault transaction e
 
 This project combines Fireblocks source and destination transaction exports, filters and reshapes the data, builds per-asset balance tabs, and produces a reconciliation sheet against a Fireblocks vault account report.
 
+## How to use
+
+1. Navigate to https://console.fireblocks.io/v2/ -> Transaction History -> Filters. 
+  Filter Source -> Select specific Vault and download CSV report
+  Filter Destination -> Select same Vault and download CSV report
+
+  Paste the CSV files int he "Vault CSV" folder
+
+2. Naviagate to https://console.fireblocks.io/v2/accounts/vault and download the Vault  Account Report in CSV format
+
+Paste the CSV file in the Recon Vault Report folder.
+
+3. Run the python script, checking the recon in the output file in the Output folder for accuracy of the build-up.
+
 ## Features
 
 - Combines Fireblocks source and destination CSV exports into a single workbook
